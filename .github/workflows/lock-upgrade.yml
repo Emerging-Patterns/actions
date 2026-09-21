@@ -1,0 +1,127 @@
+name: lock-upgrade
+
+on:
+  workflow_call:
+    inputs:
+      package:
+        description: "Forwarded as --package when set"
+        required: false
+        type: string
+        default: ""
+      branch:
+        description: "Branch to push"
+        required: false
+        type: string
+        default: "chore/ez-lock-upgrade"
+      title:
+        description: "Pull request title (empty = Upgrade ez lock, or Upgrade ez lock for <package>)"
+        required: false
+        type: string
+        default: ""
+      body:
+        description: "Pull request body (empty = the upgrade command and diff stat)"
+        required: false
+        type: string
+        default: ""
+    secrets:
+      token:
+        description: "Optional escape hatch for checkout, push, and pull requests. Empty uses github.token."
+        required: false
+
+concurrency:
+  group: lock-upgrade-${{ github.repository }}-${{ inputs.branch }}
+  cancel-in-progress: false
+
+jobs:
+  upgrade:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.token || github.token }}
+          fetch-depth: 0
+      - uses: DeterminateSystems/nix-installer-action@v23
+      - name: ez lock --upgrade
+        id: upgrade
+        shell: bash
+        env:
+          PACKAGE: ${{ inputs.package }}
+        run: |
+          set -euo pipefail
+          if [ -n "$PACKAGE" ]; then
+            nix develop -c ez lock --upgrade --package "$PACKAGE"
+          else
+            nix develop -c ez lock --upgrade
+          fi
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "No changes."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            git status --porcelain
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Open pull request
+        if: steps.upgrade.outputs.changed == 'true'
+        shell: bash
+        env:
+          PACKAGE: ${{ inputs.package }}
+          BRANCH: ${{ inputs.branch }}
+          TITLE_IN: ${{ inputs.title }}
+          BODY_IN: ${{ inputs.body }}
+          BASE: ${{ github.ref_name }}
+          GH_TOKEN: ${{ secrets.token || github.token }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$BRANCH" ]; then
+            echo "branch is empty"
+            exit 1
+          fi
+          if [ "$BRANCH" = "$BASE" ]; then
+            echo "branch must not be the same as $BASE"
+            exit 1
+          fi
+
+          if [ -n "$TITLE_IN" ]; then
+            title="$TITLE_IN"
+          elif [ -n "$PACKAGE" ]; then
+            title="Upgrade ez lock for ${PACKAGE}"
+          else
+            title="Upgrade ez lock"
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$BRANCH"
+          git add -A
+
+          if [ -n "$BODY_IN" ]; then
+            body="$BODY_IN"
+          else
+            if [ -n "$PACKAGE" ]; then
+              cmd="ez lock --upgrade --package ${PACKAGE}"
+            else
+              cmd="ez lock --upgrade"
+            fi
+            stat=$(git diff --cached --stat)
+            if [ "${#stat}" -gt 60000 ]; then
+              stat=$(git diff --cached --shortstat)
+            fi
+            tick='`'
+            fence='```'
+            body="${tick}${cmd}${tick}"$'\n\n'"${fence}"$'\n'"${stat}"$'\n'"${fence}"$'\n'
+          fi
+
+          git commit -m "$title"
+          git push --force origin "HEAD:refs/heads/${BRANCH}"
+
+          number=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
+          if [ -n "$number" ]; then
+            gh pr edit "$number" --title "$title" --body "$body"
+          else
+            gh pr create --base "$BASE" --head "$BRANCH" --title "$title" --body "$body"
+          fi
+          gh pr view "$BRANCH" --json url --jq .url

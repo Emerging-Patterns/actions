@@ -23,6 +23,13 @@ jobs:
     uses: Emerging-Patterns/actions/.github/workflows/publish.yml@<tag-or-sha>
     with:
       tag: ${{ inputs.tag }}
+  lock-upgrade:
+    permissions:
+      contents: write
+      pull-requests: write
+    uses: Emerging-Patterns/actions/.github/workflows/lock-upgrade.yml@<tag-or-sha>
+    with:
+      package: ${{ inputs.package }}
 ```
 
 ## Usage
@@ -107,3 +114,30 @@ jobs:
 ```
 
 `publish` runs `ez publish` only from `workflow_dispatch`. The hub `0x` changes only on publish, so a tag can lead it. The README `0x` stays at the last published package.
+
+```yaml
+name: lock-upgrade
+
+on:
+  workflow_dispatch:
+    inputs:
+      package:
+        description: "Package to upgrade"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  upgrade:
+    uses: Emerging-Patterns/actions/.github/workflows/lock-upgrade.yml@main
+    with:
+      package: ${{ inputs.package }}
+```
+
+`lock-upgrade` is `workflow_call` only. Callers are `workflow_dispatch`. Directors and humans trigger an ordered pass across repos, following the dependency graph. The workflow runs `ez lock --upgrade` and opens a pull request when the tree changes. `package` is forwarded as `--package` when set. `branch` defaults to `chore/ez-lock-upgrade`. An empty `title` is `Upgrade ez lock`, or `Upgrade ez lock for <package>` when `package` is set. An empty `body` is that command and the diff stat.
+
+The workflow uses `github.token`. The caller needs `contents: write` and `pull-requests: write`. Pull request CI may stay idle under `github.token`; that is accepted. `secrets.token` is an optional escape hatch for checkout, push, and the pull request.
