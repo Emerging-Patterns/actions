@@ -3,12 +3,11 @@ name: github-release
 on:
   workflow_call:
 
-permissions:
-  contents: write
-
 jobs:
   release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: softprops/action-gh-release@v3
         with:
