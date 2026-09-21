@@ -1,0 +1,35 @@
+name: publish
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: "Existing tag to publish, e.g. v0.4.0"
+        required: true
+        type: string
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ inputs.tag }}
+      - uses: DeterminateSystems/nix-installer-action@v23
+      - name: ez publish
+        shell: bash
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          nix develop -c ez publish | tee "$RUNNER_TEMP/published"
+          {
+            echo "### $TAG"
+            echo
+            echo '```'
+            cat "$RUNNER_TEMP/published"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
