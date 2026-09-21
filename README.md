@@ -30,8 +30,6 @@ jobs:
     uses: Emerging-Patterns/actions/.github/workflows/lock-upgrade.yml@<tag-or-sha>
     with:
       package: ${{ inputs.package }}
-    secrets:
-      token: ${{ secrets.LOCK_UPGRADE_TOKEN }}
 ```
 
 ## Usage
@@ -140,10 +138,8 @@ jobs:
     uses: Emerging-Patterns/actions/.github/workflows/lock-upgrade.yml@main
     with:
       package: ${{ inputs.package }}
-    secrets:
-      token: ${{ secrets.LOCK_UPGRADE_TOKEN }}
 ```
 
 `lock-upgrade` runs `ez lock --upgrade` and opens a pull request when the tree changes. `package` is forwarded as `--package` when set. `branch` defaults to `chore/ez-lock-upgrade`. An empty `title` is `Upgrade ez lock`, or `Upgrade ez lock for <package>` when `package` is set. An empty `body` is that command and the diff stat.
 
-The caller needs `contents: write` and `pull-requests: write`. `secrets.token`, when set, is the token for checkout, push, and the pull request. With no token, the workflow uses `github.token`. A pull request opened with `github.token` does not start other workflows.
+The workflow uses `github.token`. The caller needs `contents: write` and `pull-requests: write`. Pull request CI may stay idle under `github.token`; that is accepted. `secrets.token` is an optional escape hatch for checkout, push, and the pull request.

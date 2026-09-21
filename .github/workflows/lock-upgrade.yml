@@ -25,7 +25,7 @@ on:
         default: ""
     secrets:
       token:
-        description: "Token for checkout, push, and pull requests. Empty uses github.token."
+        description: "Optional escape hatch for checkout, push, and pull requests. Empty uses github.token."
         required: false
 
 concurrency:
