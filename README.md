@@ -119,8 +119,6 @@ jobs:
 name: lock-upgrade
 
 on:
-  schedule:
-    - cron: "0 6 * * 1"
   workflow_dispatch:
     inputs:
       package:
@@ -140,6 +138,6 @@ jobs:
       package: ${{ inputs.package }}
 ```
 
-`lock-upgrade` runs `ez lock --upgrade` and opens a pull request when the tree changes. `package` is forwarded as `--package` when set. `branch` defaults to `chore/ez-lock-upgrade`. An empty `title` is `Upgrade ez lock`, or `Upgrade ez lock for <package>` when `package` is set. An empty `body` is that command and the diff stat.
+`lock-upgrade` is `workflow_call` only. Callers are `workflow_dispatch`. Directors and humans trigger an ordered pass across repos, following the dependency graph. The workflow runs `ez lock --upgrade` and opens a pull request when the tree changes. `package` is forwarded as `--package` when set. `branch` defaults to `chore/ez-lock-upgrade`. An empty `title` is `Upgrade ez lock`, or `Upgrade ez lock for <package>` when `package` is set. An empty `body` is that command and the diff stat.
 
 The workflow uses `github.token`. The caller needs `contents: write` and `pull-requests: write`. Pull request CI may stay idle under `github.token`; that is accepted. `secrets.token` is an optional escape hatch for checkout, push, and the pull request.
