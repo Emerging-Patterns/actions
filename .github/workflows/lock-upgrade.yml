@@ -110,7 +110,9 @@ jobs:
             if [ "${#stat}" -gt 60000 ]; then
               stat=$(git diff --cached --shortstat)
             fi
-            body=$(printf '`%s`\n\n```\n%s\n```\n' "$cmd" "$stat")
+            tick='`'
+            fence='```'
+            body="${tick}${cmd}${tick}"$'\n\n'"${fence}"$'\n'"${stat}"$'\n'"${fence}"$'\n'
           fi
 
           git commit -m "$title"
