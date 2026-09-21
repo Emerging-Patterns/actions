@@ -14,4 +14,23 @@ jobs:
 
 ## Usage
 
-Add reusable workflows under `.github/workflows/` and composite actions under `.github/actions/<name>/`. Consumer repos call them by path and ref; keep inputs and outputs documented in each workflow file.
+`nix-flake-check.yml`:
+
+```yaml
+jobs:
+  check:
+    uses: Emerging-Patterns/actions/.github/workflows/nix-flake-check.yml@main
+```
+
+`github-release.yml` (caller triggers on tags):
+
+```yaml
+on:
+  push:
+    tags: ["v*"]
+jobs:
+  release:
+    uses: Emerging-Patterns/actions/.github/workflows/github-release.yml@main
+    secrets: inherit
+```
+
