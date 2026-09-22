@@ -17,11 +17,16 @@ name: release-please
 #     release-please:
 #       uses: Emerging-Patterns/actions/.github/workflows/release-please.yml@main
 #
-# Leave release-type empty and commit release-please-config.json plus
-# .release-please-manifest.json. For flake.nix, set the package release-type
-# to go and list flake.nix under extra-files (see README). simple rewrites
-# version.txt. node updates package.json. A non-empty release-type input
-# ignores config-file and manifest-file.
+# Leave release-type empty and commit .github/release-please-config.json plus
+# .github/release-please-manifest.json. Those paths are the defaults, so a
+# thin caller needs no with: block. Pass config-file and manifest-file only
+# to override them. For flake.nix, set the package release-type to go and
+# list flake.nix under extra-files (see README). simple rewrites version.txt.
+# node updates package.json. A non-empty release-type input ignores
+# config-file and manifest-file.
+# Never squash-merge the release pull request. Use a regular merge (or
+# rebase-merge) so release-please can create the tag and GitHub release.
+# A squash merge breaks the release.
 # tag.yml remains the manual workflow_dispatch bump. Do not also run
 # github-release.yml for tags this workflow creates.
 
@@ -37,12 +42,12 @@ on:
         description: "Path to release-please config. Used when release-type is empty."
         required: false
         type: string
-        default: "release-please-config.json"
+        default: ".github/release-please-config.json"
       manifest-file:
         description: "Path to the version manifest. Used when release-type is empty."
         required: false
         type: string
-        default: ".release-please-manifest.json"
+        default: ".github/release-please-manifest.json"
       target-branch:
         description: "Branch to open the release PR against. Empty uses the repository default branch."
         required: false
