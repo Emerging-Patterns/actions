@@ -1,5 +1,9 @@
 name: tag
 
+# Manual version bump and GitHub release for workflow_dispatch callers.
+# Automatic releases use release-please.yml. This workflow does not publish
+# to the Bend hub.
+
 on:
   workflow_call:
     inputs:
