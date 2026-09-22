@@ -1,0 +1,102 @@
+name: release-please
+
+# Automatic release on the default branch. release-please opens a release
+# pull request from conventional commits, then on merge tags vX.Y.Z and
+# creates the GitHub release. It does not publish to the Bend hub.
+#
+# Caller:
+#   name: release-please
+#   on:
+#     push:
+#       branches: [main] # or master
+#   permissions:
+#     contents: write
+#     pull-requests: write
+#     issues: write
+#   jobs:
+#     release-please:
+#       uses: Emerging-Patterns/actions/.github/workflows/release-please.yml@main
+#
+# Leave release-type empty and commit release-please-config.json plus
+# .release-please-manifest.json. For flake.nix, set the package release-type
+# to go and list flake.nix under extra-files (see README). simple rewrites
+# version.txt. node updates package.json. A non-empty release-type input
+# ignores config-file and manifest-file.
+# tag.yml remains the manual workflow_dispatch bump. Do not also run
+# github-release.yml for tags this workflow creates.
+
+on:
+  workflow_call:
+    inputs:
+      release-type:
+        description: "Built-in strategy. Empty (default) loads config-file so extra-files can version flake.nix. simple and node do not. Non-empty ignores config-file and manifest-file."
+        required: false
+        type: string
+        default: ""
+      config-file:
+        description: "Path to release-please config. Used when release-type is empty."
+        required: false
+        type: string
+        default: "release-please-config.json"
+      manifest-file:
+        description: "Path to the version manifest. Used when release-type is empty."
+        required: false
+        type: string
+        default: ".release-please-manifest.json"
+      target-branch:
+        description: "Branch to open the release PR against. Empty uses the repository default branch."
+        required: false
+        type: string
+        default: ""
+    secrets:
+      token:
+        description: "Optional token for the release PR and GitHub release. Empty uses github.token. A PAT retriggers workflows."
+        required: false
+    outputs:
+      releases_created:
+        description: "true if any GitHub release was created"
+        value: ${{ jobs.release-please.outputs.releases_created }}
+      release_created:
+        description: "true if the root component was released"
+        value: ${{ jobs.release-please.outputs.release_created }}
+      tag_name:
+        description: "Root component tag, when a release was created"
+        value: ${{ jobs.release-please.outputs.tag_name }}
+      version:
+        description: "Root component version, when a release was created"
+        value: ${{ jobs.release-please.outputs.version }}
+      sha:
+        description: "Commit SHA the root release was tagged at"
+        value: ${{ jobs.release-please.outputs.sha }}
+      html_url:
+        description: "GitHub release URL for the root component"
+        value: ${{ jobs.release-please.outputs.html_url }}
+
+concurrency:
+  group: release-please-${{ github.repository }}-${{ inputs.target-branch }}
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    outputs:
+      releases_created: ${{ steps.release.outputs.releases_created }}
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      version: ${{ steps.release.outputs.version }}
+      sha: ${{ steps.release.outputs.sha }}
+      html_url: ${{ steps.release.outputs.html_url }}
+    steps:
+      - name: release-please
+        id: release
+        uses: googleapis/release-please-action@v4
+        with:
+          token: ${{ secrets.token || github.token }}
+          release-type: ${{ inputs.release-type }}
+          config-file: ${{ inputs.config-file }}
+          manifest-file: ${{ inputs.manifest-file }}
+          target-branch: ${{ inputs.target-branch }}
