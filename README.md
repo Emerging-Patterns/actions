@@ -23,6 +23,9 @@ jobs:
     uses: Emerging-Patterns/actions/.github/workflows/publish.yml@<tag-or-sha>
     with:
       tag: ${{ inputs.tag }}
+      hub-name: my-package        # optional: publish as my-package@X.Y.Z.0
+    secrets:
+      bend-key: ${{ secrets.BEND_HUB_KEY }}   # needed with hub-name
   lock-upgrade:
     permissions:
       contents: write
@@ -227,3 +230,37 @@ jobs:
 `lock-upgrade` is `workflow_call` only. Callers are `workflow_dispatch`. Directors and humans trigger an ordered pass across repos, following the dependency graph. The workflow runs `ez lock --upgrade` and opens a pull request when the tree changes. `package` is forwarded as `--package` when set. `branch` defaults to `chore/ez-lock-upgrade`. An empty `title` is `Upgrade ez lock`, or `Upgrade ez lock for <package>` when `package` is set. An empty `body` is that command and the diff stat.
 
 The workflow uses `github.token`. The caller needs `contents: write` and `pull-requests: write`. Pull request CI may stay idle under `github.token`; that is accepted. `secrets.token` is an optional escape hatch for checkout, push, and the pull request.
+
+## Release, then publish to the Bend hub
+
+release-please cuts the release; a second job in the same caller publishes
+the new tag, so a release reaches the hub with no one running anything. The
+publish job runs the package's proof gate (`ez prove`) and refuses a package
+with no LICENSE beside its entry before it uploads, since an upload is
+permanent. `BEND_HUB_KEY` is the `key` of a Bender login
+(`~/.bend/bender.json` after `bend login`) whose account owns the hub name.
+
+```yaml
+name: release-please
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+jobs:
+  release-please:
+    uses: Emerging-Patterns/actions/.github/workflows/release-please.yml@<sha>
+  publish:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    permissions:
+      contents: read
+    uses: Emerging-Patterns/actions/.github/workflows/publish.yml@<sha>
+    with:
+      tag: ${{ needs.release-please.outputs.tag_name }}
+      hub-name: my-package
+    secrets:
+      bend-key: ${{ secrets.BEND_HUB_KEY }}
+```

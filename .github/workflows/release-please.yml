@@ -2,7 +2,9 @@ name: release-please
 
 # Automatic release on the default branch. release-please opens a release
 # pull request from conventional commits, then on merge tags vX.Y.Z and
-# creates the GitHub release. It does not publish to the Bend hub.
+# creates the GitHub release. It does not publish to the Bend hub itself: a
+# caller that publishes adds a `publish` job after it (publish.yml), run only
+# when release_created is true, with the tag_name output as its tag.
 #
 # Caller:
 #   name: release-please
