@@ -94,12 +94,20 @@ jobs:
           fi
           echo "ENTRY=$entry" >> "$GITHUB_ENV"
           echo "entry $entry; hub description: $(sed -n 1p "$entry")"
+      # ez from the repository's own flake: a package flake exposes it as
+      # packages.ez, and ez's own flake as packages.default (its dev shell
+      # does not carry the ez it is building)
+      - name: Build ez
+        run: |
+          nix build .#ez -o "$RUNNER_TEMP/ez" 2>/dev/null || nix build .#default -o "$RUNNER_TEMP/ez"
+          "$RUNNER_TEMP/ez/bin/ez" --help >/dev/null
+          echo "EZ=$RUNNER_TEMP/ez/bin/ez" >> "$GITHUB_ENV"
       - name: Proof gate
         run: |
           echo "BEND_LIB=$PWD/.ez/lib" >> "$GITHUB_ENV"
           mkdir -p .ez/lib
-          nix develop -c env BEND_LIB="$PWD/.ez/lib" ez fetch
-          nix develop -c env BEND_LIB="$PWD/.ez/lib" ez prove
+          nix develop -c env BEND_LIB="$PWD/.ez/lib" "$EZ" fetch
+          nix develop -c env BEND_LIB="$PWD/.ez/lib" "$EZ" prove
       - name: Log in to the hub
         if: inputs.hub-name != ''
         shell: bash
@@ -136,7 +144,7 @@ jobs:
             nix develop -c bash -c 'cd "$(dirname "$ENTRY")" && BEND_LIB="$BEND_LIB" bend "$(basename "$ENTRY")" --publish "$NAME@${TAG#v}.0"' \
               | tee "$RUNNER_TEMP/published"
           else
-            nix develop -c ez publish | tee "$RUNNER_TEMP/published"
+            nix develop -c "$EZ" publish | tee "$RUNNER_TEMP/published"
           fi
           hash=$(grep -oxE '0x[0-9a-f]{32}' "$RUNNER_TEMP/published" | head -1)
           [ -n "$hash" ] || { echo "::error::no hash in the publish output"; exit 1; }
