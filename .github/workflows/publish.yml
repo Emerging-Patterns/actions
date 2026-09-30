@@ -46,6 +46,11 @@ on:
         required: false
         type: string
         default: ""
+      dry-run:
+        description: "Run every check, the hub's name check included, and stop before the upload."
+        required: false
+        type: boolean
+        default: false
     secrets:
       bend-key:
         description: "Bender login key (the `key` of ~/.bend/bender.json). Required with hub-name."
@@ -119,6 +124,7 @@ jobs:
           echo "$got" | jq -e '(.name == "yours" or .name == "free") and .version_ok == true' >/dev/null || {
             echo "::error::the hub will not take $NAME@${TAG#v}.0: $(echo "$got" | jq -r .reason)"; exit 1; }
       - name: Publish
+        if: ${{ !inputs.dry-run }}
         shell: bash
         env:
           TAG: ${{ inputs.tag }}
