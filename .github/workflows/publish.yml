@@ -1,5 +1,39 @@
 name: publish
 
+# Publish a release tag of an ez-managed Bend package to the Bend hub, by hash,
+# and under a hub name when `hub-name` is given. Called after release-please
+# cuts a release (see README) or by hand through a workflow_dispatch caller.
+# An upload is public and permanent, so every check runs before it.
+#
+# It uses the repository's own flake (`nix develop`): the bend and ez the
+# package is checked with are the ones it is published with.
+#
+# Before the upload it refuses:
+#   - ez.toml [package] setting publish-as or version (the hub name is this
+#     workflow's `hub-name`, not package content);
+#   - an entry under manifest/ (the hub serves <hash>/manifest);
+#   - no LICENSE beside the entry: bend adds a LICENSE only from directories
+#     that hold a walked file, and a package with none goes up under the hub
+#     terms' default license (MIT-0), for good;
+#   - a proof gate that does not pass (`ez prove`).
+#
+# Named: `bend <entry> --publish <hub-name>@X.Y.Z.0` (the hub's four-part
+# version, from tag vX.Y.Z), with the `bend-key` secret as the Bender login
+# key. The hub must already answer the name as yours or free, and the version
+# must go up; a refused name stops before the upload. Unnamed: `ez publish`,
+# which checks bend's hash against the one ez computes.
+#
+# Caller (after release-please; see README for the full file):
+#   publish:
+#     needs: release-please
+#     if: needs.release-please.outputs.release_created == 'true'
+#     uses: Emerging-Patterns/actions/.github/workflows/publish.yml@<sha>
+#     with:
+#       tag: ${{ needs.release-please.outputs.tag_name }}
+#       hub-name: snap
+#     secrets:
+#       bend-key: ${{ secrets.BEND_HUB_KEY }}
+
 on:
   workflow_call:
     inputs:
@@ -7,10 +41,22 @@ on:
         description: "Existing tag to publish, e.g. v0.4.0"
         required: true
         type: string
+      hub-name:
+        description: "Hub name to publish under, as <hub-name>@X.Y.Z.0. Empty publishes by hash only."
+        required: false
+        type: string
+        default: ""
+    secrets:
+      bend-key:
+        description: "Bender login key (the `key` of ~/.bend/bender.json). Required with hub-name."
+        required: false
 
 concurrency:
-  group: publish
+  group: publish-${{ github.repository }}
   cancel-in-progress: false
+
+permissions:
+  contents: read
 
 jobs:
   publish:
@@ -20,16 +66,86 @@ jobs:
         with:
           ref: refs/tags/${{ inputs.tag }}
       - uses: DeterminateSystems/nix-installer-action@v23
-      - name: ez publish
+      - name: Refuse what would publish wrong
         shell: bash
         env:
           TAG: ${{ inputs.tag }}
+          NAME: ${{ inputs.hub-name }}
+          HAS_KEY: ${{ secrets.bend-key != '' }}
         run: |
-          nix develop -c ez publish | tee "$RUNNER_TEMP/published"
+          set -euo pipefail
+          case "$TAG" in v[0-9]*.[0-9]*.[0-9]*) ;; *) echo "::error::tag $TAG is not vX.Y.Z"; exit 1 ;; esac
+          if sed -n '/^\[package\]/,/^\[/p' ez.toml | grep -qE '^(publish-as|version)[[:space:]]*='; then
+            echo "::error::ez.toml [package] sets publish-as/version; name the release with hub-name instead"; exit 1
+          fi
+          entry=$(sed -n '/^\[package\]/,/^\[/{s/^entry *= *"\(.*\)"/\1/p}' ez.toml | head -1)
+          entry=${entry:-main.bend}
+          case "$entry" in manifest/*) echo "::error::the entry is under manifest/, which the hub reserves"; exit 1 ;; esac
+          [ -f "$(dirname "$entry")/LICENSE" ] || {
+            echo "::error::no LICENSE beside $entry: the package would be published as MIT-0"; exit 1; }
+          if [ -n "$NAME" ]; then
+            printf '%s' "$NAME" | grep -qxE '[a-z][a-z0-9-]{0,63}' || { echo "::error::hub-name $NAME is not a hub name"; exit 1; }
+            [ "$HAS_KEY" = true ] || { echo "::error::hub-name needs the bend-key secret"; exit 1; }
+          fi
+          echo "ENTRY=$entry" >> "$GITHUB_ENV"
+          echo "entry $entry; hub description: $(sed -n 1p "$entry")"
+      - name: Proof gate
+        run: |
+          echo "BEND_LIB=$PWD/.ez/lib" >> "$GITHUB_ENV"
+          mkdir -p .ez/lib
+          nix develop -c env BEND_LIB="$PWD/.ez/lib" ez fetch
+          nix develop -c env BEND_LIB="$PWD/.ez/lib" ez prove
+      - name: Log in to the hub
+        if: inputs.hub-name != ''
+        shell: bash
+        env:
+          KEY: ${{ secrets.bend-key }}
+        run: |
+          mkdir -p ~/.bend
+          umask 077
+          jq -n --arg key "$KEY" '{key: $key}' > ~/.bend/bender.json
+      - name: Ask the hub about the name
+        if: inputs.hub-name != ''
+        shell: bash
+        env:
+          KEY: ${{ secrets.bend-key }}
+          TAG: ${{ inputs.tag }}
+          NAME: ${{ inputs.hub-name }}
+        run: |
+          set -euo pipefail
+          got=$(curl -fsS -H "authorization: Bearer $KEY" \
+            "https://hub.bend-lang.com/publish-check?name=$NAME&version=${TAG#v}.0")
+          echo "$got"
+          echo "$got" | jq -e '(.name == "yours" or .name == "free") and .version_ok == true' >/dev/null || {
+            echo "::error::the hub will not take $NAME@${TAG#v}.0: $(echo "$got" | jq -r .reason)"; exit 1; }
+      - name: Publish
+        shell: bash
+        env:
+          TAG: ${{ inputs.tag }}
+          NAME: ${{ inputs.hub-name }}
+        run: |
+          set -euo pipefail
+          export TAG NAME ENTRY BEND_LIB
+          if [ -n "$NAME" ]; then
+            nix develop -c bash -c 'cd "$(dirname "$ENTRY")" && BEND_LIB="$BEND_LIB" bend "$(basename "$ENTRY")" --publish "$NAME@${TAG#v}.0"' \
+              | tee "$RUNNER_TEMP/published"
+          else
+            nix develop -c ez publish | tee "$RUNNER_TEMP/published"
+          fi
+          hash=$(grep -oxE '0x[0-9a-f]{32}' "$RUNNER_TEMP/published" | head -1)
+          [ -n "$hash" ] || { echo "::error::no hash in the publish output"; exit 1; }
+          curl -fsS -o /dev/null "https://hub.bend-lang.com/$hash/manifest"
+          if [ -n "$NAME" ]; then
+            [ "$(curl -fsS "https://hub.bend-lang.com/name/$NAME@${TAG#v}.0" | tr -d '[:space:]')" = "$hash" ] || {
+              echo "::error::$NAME@${TAG#v}.0 does not resolve to $hash"; exit 1; }
+          fi
           {
-            echo "### $TAG"
+            echo "### $TAG on the Bend hub"
             echo
             echo '```'
             cat "$RUNNER_TEMP/published"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+      - name: Log out
+        if: always()
+        run: rm -f ~/.bend/bender.json
