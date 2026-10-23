@@ -15,9 +15,34 @@ name: release-please
 #     contents: write
 #     pull-requests: write
 #     issues: write
+#     actions: write
 #   jobs:
 #     release-please:
+#       permissions:
+#         contents: write
+#         pull-requests: write
+#         issues: write
+#         actions: write
 #       uses: Emerging-Patterns/actions/.github/workflows/release-please.yml@main
+#       with:
+#         ci-workflow: ci.yml
+#
+# The caller must grant actions: write (workflow and job), since this job
+# requests it; a caller that does not gets a startup failure.
+#
+# ci-workflow runs the caller's CI on the release pull request. release-please
+# pushes the release branch with github.token, and GitHub starts no workflow
+# for an event github.token caused, so the release pull request never gets the
+# required check and cannot merge. workflow_dispatch is the exception, and a
+# required check is matched by name on the head commit, whatever event ran it.
+# So, with ci-workflow set (e.g. ci.yml), after release-please this job finds
+# every open release pull request against the target branch (the ones
+# release-please created or updated this run, from its prs output, and any it
+# left unchanged) and runs `gh workflow run <ci-workflow> --ref <branch>` for
+# each head commit that has no run of that workflow yet. The caller's
+# ci-workflow must list workflow_dispatch under on:, and its check job must
+# keep the name the ruleset requires (check / check for a `check` job that
+# calls nix-flake-check.yml). Empty (default) is off.
 #
 # Leave release-type empty and commit .github/release-please-config.json plus
 # .github/release-please-manifest.json. Those paths are the defaults, so a
@@ -52,6 +77,11 @@ on:
         default: ".github/release-please-manifest.json"
       target-branch:
         description: "Branch to open the release PR against. Empty uses the repository default branch."
+        required: false
+        type: string
+        default: ""
+      ci-workflow:
+        description: "Caller CI workflow file (e.g. ci.yml) to dispatch on each open release PR head that has no run of it yet. Needs workflow_dispatch in that workflow and actions: write from the caller. Empty (default) is off."
         required: false
         type: string
         default: ""
@@ -90,6 +120,7 @@ jobs:
       contents: write
       pull-requests: write
       issues: write
+      actions: write
     outputs:
       releases_created: ${{ steps.release.outputs.releases_created }}
       release_created: ${{ steps.release.outputs.release_created }}
@@ -107,3 +138,39 @@ jobs:
           config-file: ${{ inputs.config-file }}
           manifest-file: ${{ inputs.manifest-file }}
           target-branch: ${{ inputs.target-branch }}
+
+      # release-please pushes with github.token, which starts no workflow, so
+      # dispatch the caller's CI on each release branch head that lacks a run.
+      # Every run checks, not only when prs_created is true: release-please
+      # leaves a pull request whose notes did not change untouched (no prs
+      # output), and one opened before ci-workflow was set still needs a run.
+      - name: ci on the release pull request
+        if: inputs.ci-workflow != ''
+        env:
+          GH_TOKEN: ${{ secrets.token || github.token }}
+          GH_REPO: ${{ github.repository }}
+          CI_WORKFLOW: ${{ inputs.ci-workflow }}
+          TARGET_BRANCH: ${{ inputs.target-branch }}
+          PRS: ${{ steps.release.outputs.prs }}
+        run: |
+          set -euo pipefail
+          target="${TARGET_BRANCH:-$(gh repo view "$GH_REPO" --json defaultBranchRef --jq .defaultBranchRef.name)}"
+          prefix="release-please--branches--${target}"
+          {
+            printf '%s' "${PRS:-[]}" | jq -r '.[].headBranchName'
+            gh pr list --state open --base "$target" --json headRefName \
+              | jq -r --arg p "$prefix" '.[].headRefName | select(. == $p or startswith($p + "--"))'
+          } | sort -u | while read -r branch; do
+            [ -n "$branch" ] || continue
+            sha=$(gh api "repos/$GH_REPO/commits/$branch" --jq .sha 2>/dev/null) || {
+              echo "$branch: no such branch"
+              continue
+            }
+            runs=$(gh api "repos/$GH_REPO/actions/workflows/$CI_WORKFLOW/runs?head_sha=$sha&per_page=1" --jq .total_count)
+            if [ "$runs" -gt 0 ]; then
+              echo "$branch ($sha): $CI_WORKFLOW already ran"
+            else
+              echo "$branch ($sha): dispatching $CI_WORKFLOW"
+              gh workflow run "$CI_WORKFLOW" --repo "$GH_REPO" --ref "$branch"
+            fi
+          done
