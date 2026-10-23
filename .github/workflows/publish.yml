@@ -96,11 +96,19 @@ jobs:
           echo "ENTRY=$entry" >> "$GITHUB_ENV"
           echo "entry $entry; hub description: $(sed -n 1p "$entry")"
       # ez from the repository's own flake: a package flake exposes it as
-      # packages.ez, and ez's own flake as packages.default (its dev shell
-      # does not carry the ez it is building)
+      # packages.ez, or at least locks it as its `ez` input (bolt's flake
+      # does not re-export it), and ez's own flake as packages.default (its
+      # dev shell does not carry the ez it is building)
       - name: Build ez
         run: |
-          nix build .#ez -o "$RUNNER_TEMP/ez" 2>/dev/null || nix build .#default -o "$RUNNER_TEMP/ez"
+          system=$(nix eval --impure --raw --expr builtins.currentSystem)
+          if nix eval ".#packages.$system" --apply 'p: p ? ez' | grep -qx true; then
+            nix build .#ez -o "$RUNNER_TEMP/ez"
+          elif nix flake metadata --json | jq -e '.locks.nodes.root.inputs.ez' >/dev/null; then
+            nix build --inputs-from . ez -o "$RUNNER_TEMP/ez"
+          else
+            nix build .#default -o "$RUNNER_TEMP/ez"
+          fi
           "$RUNNER_TEMP/ez/bin/ez" --help >/dev/null
           echo "EZ=$RUNNER_TEMP/ez/bin/ez" >> "$GITHUB_ENV"
       # The gate is the one the flake declares, checks.<system>.proofs: it runs
