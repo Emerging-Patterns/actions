@@ -177,6 +177,12 @@ jobs:
               echo "$branch ($sha): $CI_WORKFLOW already ran"
             else
               echo "$branch ($sha): dispatching $CI_WORKFLOW"
-              gh workflow run "$CI_WORKFLOW" --repo "$GH_REPO" --ref "$branch"
+              # The dispatch reads the workflow file on the release branch, so
+              # a release branch cut before the caller added workflow_dispatch
+              # gets HTTP 422 until release-please next rewrites the branch
+              # or someone updates it from the target branch. Warn and go on:
+              # failing here would fail the release-please job.
+              gh workflow run "$CI_WORKFLOW" --repo "$GH_REPO" --ref "$branch" ||
+                echo "::warning::$branch: could not dispatch $CI_WORKFLOW. If its copy on that branch lacks workflow_dispatch, update the branch from $target."
             fi
           done
