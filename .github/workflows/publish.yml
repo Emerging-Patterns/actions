@@ -15,7 +15,8 @@ name: publish
 #   - no LICENSE beside the entry: bend adds a LICENSE only from directories
 #     that hold a walked file, and a package with none goes up under the hub
 #     terms' default license (MIT-0), for good;
-#   - a proof gate that does not pass (`ez prove`).
+#   - a proof gate that does not pass (the flake's checks.<system>.proofs,
+#     else `ez prove`).
 #
 # Named: `bend <entry> --publish <hub-name>@X.Y.Z.0` (the hub's four-part
 # version, from tag vX.Y.Z), with the `bend-key` secret as the Bender login
@@ -102,12 +103,22 @@ jobs:
           nix build .#ez -o "$RUNNER_TEMP/ez" 2>/dev/null || nix build .#default -o "$RUNNER_TEMP/ez"
           "$RUNNER_TEMP/ez/bin/ez" --help >/dev/null
           echo "EZ=$RUNNER_TEMP/ez/bin/ez" >> "$GITHUB_ENV"
+      # The gate is the one the flake declares, checks.<system>.proofs: it runs
+      # on the flake's own bend. `ez prove` runs on the bend ez was built with,
+      # which differs while a package moves to a new bend ahead of ez (the
+      # interim flake), so it is only the fallback for a flake without that
+      # check.
       - name: Proof gate
         run: |
           echo "BEND_LIB=$PWD/.ez/lib" >> "$GITHUB_ENV"
           mkdir -p .ez/lib
           nix develop -c env BEND_LIB="$PWD/.ez/lib" "$EZ" fetch
-          nix develop -c env BEND_LIB="$PWD/.ez/lib" "$EZ" prove
+          system=$(nix eval --impure --raw --expr builtins.currentSystem)
+          if nix eval ".#checks.$system" --apply 'c: c ? proofs' | grep -qx true; then
+            nix build -L --no-link ".#checks.$system.proofs"
+          else
+            nix develop -c env BEND_LIB="$PWD/.ez/lib" "$EZ" prove
+          fi
       - name: Log in to the hub
         if: inputs.hub-name != ''
         shell: bash
