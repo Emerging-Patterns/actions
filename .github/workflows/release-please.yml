@@ -166,7 +166,13 @@ jobs:
               echo "$branch: no such branch"
               continue
             }
-            runs=$(gh api "repos/$GH_REPO/actions/workflows/$CI_WORKFLOW/runs?head_sha=$sha&per_page=1" --jq .total_count)
+            # GitHub records the pull_request event github.token caused as a
+            # run with conclusion action_required that never ran a job, so
+            # count only runs that are running or ran (cancelled and stale
+            # ones get a fresh dispatch).
+            # shellcheck disable=SC2016 # $c is a jq variable
+            runs=$(gh api "repos/$GH_REPO/actions/workflows/$CI_WORKFLOW/runs?head_sha=$sha&per_page=100" \
+              --jq '[.workflow_runs[] | select(.conclusion as $c | ["action_required", "cancelled", "stale", "skipped"] | index($c) | not)] | length')
             if [ "$runs" -gt 0 ]; then
               echo "$branch ($sha): $CI_WORKFLOW already ran"
             else
