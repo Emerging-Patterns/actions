@@ -55,6 +55,19 @@ jobs:
     uses: Emerging-Patterns/actions/.github/workflows/nix-flake-check.yml@main
 ```
 
+`nix flake check` runs once per runner in `runners`, a JSON list, which is
+`["ubuntu-latest", "ubuntu-24.04-arm", "macos-14"]` unless set. Each runner
+needs the flake's `checks` for its system, and the `check` job passes when
+every runner did:
+
+```yaml
+jobs:
+  check:
+    uses: Emerging-Patterns/actions/.github/workflows/nix-flake-check.yml@main
+    with:
+      runners: '["ubuntu-latest", "macos-14"]'
+```
+
 ```yaml
 name: release
 
