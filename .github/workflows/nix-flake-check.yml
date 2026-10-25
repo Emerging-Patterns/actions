@@ -2,11 +2,34 @@ name: nix-flake-check
 
 on:
   workflow_call:
+    inputs:
+      runners:
+        description: JSON list of the runners `nix flake check` runs on, one job each.
+        type: string
+        default: '["ubuntu-latest", "ubuntu-24.04-arm", "macos-14"]'
 
 jobs:
-  check:
-    runs-on: ubuntu-latest
+  flake:
+    name: flake (${{ matrix.runner }})
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: ${{ fromJSON(inputs.runners) }}
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
       - uses: DeterminateSystems/nix-installer-action@v23
+      - name: Checks for this system
+        run: |
+          system=$(nix eval --impure --raw --expr builtins.currentSystem)
+          echo "system: $system"
+          nix eval --json ".#checks.$system" --apply 'c: if c == { } then throw "the flake has no checks for this system" else builtins.attrNames c'
       - run: nix flake check -L
+
+  # One status for every runner, under the name branch rules require.
+  check:
+    needs: flake
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: test "${{ needs.flake.result }}" = success
