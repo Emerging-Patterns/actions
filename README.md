@@ -56,7 +56,8 @@ jobs:
 ```
 
 `nix flake check` runs once per runner in `runners`, a JSON list, which is
-`["ubuntu-latest", "ubuntu-24.04-arm", "macos-14"]` unless set. Each runner
+`["ubuntu-latest", "ubuntu-24.04-arm", "macos-15"]` unless set (`macos-14`
+until GitHub retired it on 2026-11-02; `macos-15` is arm64 too). Each runner
 needs the flake's `checks` for its system, and the `check` job passes when
 every runner did:
 
@@ -65,7 +66,7 @@ jobs:
   check:
     uses: Emerging-Patterns/actions/.github/workflows/nix-flake-check.yml@main
     with:
-      runners: '["ubuntu-latest", "macos-14"]'
+      runners: '["ubuntu-latest", "macos-15"]'
 ```
 
 ```yaml
