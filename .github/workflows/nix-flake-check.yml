@@ -14,7 +14,7 @@ on:
       optional-paths:
         description: Extended regex over changed paths. The optional runners run only when a change touches a match (C or JS effect code, or anything that moves the toolchain or a dependency); a push with no known base and a manual run always run them.
         type: string
-        default: '\.(c|h|js|mjs|cjs)$|(^|/)(flake\.nix|flake\.lock|ez\.toml|ez\.lock\.toml)$|^\.github/'
+        default: '\.(c|h|js|mjs|cjs)$|(^|/)(flake\.nix|flake\.lock|ez\.toml|ez\.lock\.toml)$'
 
 jobs:
   flake:
