@@ -4,9 +4,13 @@ on:
   workflow_call:
     inputs:
       runners:
-        description: JSON list of the runners `nix flake check` runs on, one job each.
+        description: JSON list of the runners `nix flake check` must pass on, one job each. The required `check` status waits for these.
         type: string
-        default: '["ubuntu-latest", "ubuntu-24.04-arm", "macos-15"]'
+        default: '["ubuntu-latest", "ubuntu-24.04-arm"]'
+      optional-runners:
+        description: JSON list of runners `nix flake check` also runs on, one job each, outside the required `check` status. A failure shows red on the run but does not hold a merge. '[]' runs none.
+        type: string
+        default: '["macos-15"]'
 
 jobs:
   flake:
@@ -26,7 +30,27 @@ jobs:
           nix eval --json ".#checks.$system" --apply 'c: if c == { } then throw "the flake has no checks for this system" else builtins.attrNames c'
       - run: nix flake check -L
 
-  # One status for every runner, under the name branch rules require.
+  # The same check on runners too slow to hold every merge (macOS queues
+  # for minutes). Nothing needs this job, so `check` reports without it.
+  flake-optional:
+    name: flake (${{ matrix.runner }}, optional)
+    if: inputs.optional-runners != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: ${{ fromJSON(inputs.optional-runners) }}
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v23
+      - name: Checks for this system
+        run: |
+          system=$(nix eval --impure --raw --expr builtins.currentSystem)
+          echo "system: $system"
+          nix eval --json ".#checks.$system" --apply 'c: if c == { } then throw "the flake has no checks for this system" else builtins.attrNames c'
+      - run: nix flake check -L
+
+  # One status for every required runner, under the name branch rules require.
   check:
     needs: flake
     if: always()

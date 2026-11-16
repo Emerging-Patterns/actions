@@ -56,10 +56,15 @@ jobs:
 ```
 
 `nix flake check` runs once per runner in `runners`, a JSON list, which is
-`["ubuntu-latest", "ubuntu-24.04-arm", "macos-15"]` unless set (`macos-14`
-until GitHub retired it on 2026-11-02; `macos-15` is arm64 too). Each runner
-needs the flake's `checks` for its system, and the `check` job passes when
-every runner did:
+`["ubuntu-latest", "ubuntu-24.04-arm"]` unless set, and once per runner in
+`optional-runners`, `["macos-15"]` unless set (`macos-14` until GitHub
+retired it on 2026-11-02; `macos-15` is arm64 too). Each runner needs the
+flake's `checks` for its system. The `check` job, the status branch rules
+require, passes when every runner in `runners` did; it doesn't wait for
+`optional-runners`, whose jobs (`flake (<runner>, optional)`) still run and
+show red when they fail, so a slow macOS queue doesn't hold a merge.
+`optional-runners: '[]'` runs none; listing macOS in `runners` makes it
+required again:
 
 ```yaml
 jobs:
@@ -67,6 +72,7 @@ jobs:
     uses: Emerging-Patterns/actions/.github/workflows/nix-flake-check.yml@main
     with:
       runners: '["ubuntu-latest", "macos-15"]'
+      optional-runners: '[]'
 ```
 
 ```yaml
