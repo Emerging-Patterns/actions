@@ -11,6 +11,10 @@ on:
         description: JSON list of runners `nix flake check` also runs on, one job each, outside the required `check` status. A failure shows red on the run but does not hold a merge. '[]' runs none.
         type: string
         default: '["macos-15"]'
+      optional-paths:
+        description: Extended regex over changed paths. The optional runners run only when a change touches a match (C or JS effect code, or anything that moves the toolchain or a dependency); a push with no known base and a manual run always run them.
+        type: string
+        default: '\.(c|h|js|mjs|cjs)$|(^|/)(flake\.nix|flake\.lock|ez\.toml|ez\.lock\.toml)$|^\.github/'
 
 jobs:
   flake:
@@ -30,11 +34,49 @@ jobs:
           nix eval --json ".#checks.$system" --apply 'c: if c == { } then throw "the flake has no checks for this system" else builtins.attrNames c'
       - run: nix flake check -L
 
+  # Whether this change can behave differently on the optional runners:
+  # pure Bend runs the same everywhere, foreign C/JS and the toolchain don't.
+  changes:
+    if: inputs.optional-runners != '[]'
+    runs-on: ubuntu-latest
+    outputs:
+      optional: ${{ steps.diff.outputs.optional }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          BEFORE: ${{ github.event.before }}
+          PATHS: ${{ inputs.optional-paths }}
+        run: |
+          case "$EVENT" in
+            pull_request|pull_request_target) base=$PR_BASE ;;
+            push) base=$BEFORE ;;
+            *) base= ;;
+          esac
+          if [ -z "$base" ] || [ "$base" = 0000000000000000000000000000000000000000 ] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            echo "no base to compare: run the optional runners"
+            echo optional=true >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          hits=$(git diff --name-only "$base...HEAD" | grep -E "$PATHS" || true)
+          if [ -n "$hits" ]; then
+            printf 'changed paths the optional runners check:\n%s\n' "$hits"
+            echo optional=true >> "$GITHUB_OUTPUT"
+          else
+            echo "no C/JS, toolchain or dependency change: optional runners skipped"
+            echo optional=false >> "$GITHUB_OUTPUT"
+          fi
+
   # The same check on runners too slow to hold every merge (macOS queues
-  # for minutes). Nothing needs this job, so `check` reports without it.
+  # for minutes), run only when `changes` says the change could differ there.
+  # Nothing needs this job, so `check` reports without it.
   flake-optional:
     name: flake (${{ matrix.runner }}, optional)
-    if: inputs.optional-runners != '[]'
+    needs: changes
+    if: needs.changes.outputs.optional == 'true'
     strategy:
       fail-fast: false
       matrix:

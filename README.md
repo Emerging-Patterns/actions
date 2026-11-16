@@ -63,6 +63,12 @@ flake's `checks` for its system. The `check` job, the status branch rules
 require, passes when every runner in `runners` did; it doesn't wait for
 `optional-runners`, whose jobs (`flake (<runner>, optional)`) still run and
 show red when they fail, so a slow macOS queue doesn't hold a merge.
+The optional runners only run when the change touches `optional-paths`, a
+regex over changed paths: by default C/JS effect code (`.c`, `.h`, `.js`,
+`.mjs`, `.cjs`) and the files that move the toolchain or a dependency
+(`flake.nix`, `flake.lock`, `ez.toml`, `ez.lock.toml`). Pure Bend behaves
+the same on every system, so a change to `.bend` files alone skips macOS. A
+push with no base to compare and a manual run always run them.
 `optional-runners: '[]'` runs none; listing macOS in `runners` makes it
 required again:
 
